@@ -23,6 +23,21 @@ export function useAuth() {
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
       setSession(s);
+      // ログイン直後だけ渡されるリフレッシュトークンを保存（常時カレンダー連携用）
+      const refreshToken = s?.provider_refresh_token;
+      if (refreshToken && s?.user && supabase) {
+        void supabase
+          .from("google_tokens")
+          .upsert({
+            user_id: s.user.id,
+            refresh_token: refreshToken,
+            updated_at: Date.now(),
+          })
+          .then(({ error }) => {
+            if (error)
+              console.error("Google連携トークンの保存エラー:", error.message);
+          });
+      }
     });
     return () => {
       cancelled = true;
@@ -34,7 +49,14 @@ export function useAuth() {
     if (!supabase) return;
     await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: window.location.origin },
+      options: {
+        redirectTo: window.location.origin,
+        // ログイン時にカレンダー権限もまとめて取得し、
+        // オフライン用リフレッシュトークンをもらう（常時連携）
+        scopes:
+          "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events",
+        queryParams: { access_type: "offline", prompt: "consent" },
+      },
     });
   }, []);
 

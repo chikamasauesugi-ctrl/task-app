@@ -1,37 +1,31 @@
 "use client";
 
-import { useState } from "react";
 import type { GoogleCalendarInfo } from "../lib/googleCalendar";
 import type { GoogleStatus } from "../lib/useGoogleCalendar";
 
 interface Props {
   status: GoogleStatus;
-  error: string;
-  savedClientId: string;
   calendars: GoogleCalendarInfo[];
   selectedIds: string[];
-  onConnect: (clientId: string) => void;
-  onDisconnect: () => void;
   onChangeSelected: (ids: string[]) => void;
   onReload: () => void;
+  /** カレンダー許可つきの再ログインを開始する */
+  onReauth: () => void;
+  onDisconnect: () => void;
   onClose: () => void;
 }
 
-/** Google カレンダー連携の設定モーダル */
+/** Google カレンダー連携の設定モーダル（ログインと連動した常時接続） */
 export default function GoogleModal({
   status,
-  error,
-  savedClientId,
   calendars,
   selectedIds,
-  onConnect,
-  onDisconnect,
   onChangeSelected,
   onReload,
+  onReauth,
+  onDisconnect,
   onClose,
 }: Props) {
-  const [clientId, setClientId] = useState(savedClientId);
-
   const toggle = (id: string) => {
     onChangeSelected(
       selectedIds.includes(id)
@@ -65,49 +59,31 @@ export default function GoogleModal({
           </button>
         </div>
 
-        {status !== "connected" && (
+        {status === "connecting" && (
+          <p className="py-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
+            接続しています…
+          </p>
+        )}
+
+        {(status === "needs_reauth" ||
+          status === "error" ||
+          status === "disconnected") && (
           <div className="flex flex-col gap-3">
             <p className="text-sm text-zinc-600 dark:text-zinc-300">
-              Googleカレンダーの予定を読み込んで、同じタイムラインに表示します（読み取り専用。アプリからGoogleへの書き込みはしません）。
+              カレンダー連携には、Googleログイン時のカレンダー許可が必要です。
+              下のボタンからログインし直して、カレンダーの項目に
+              <b>チェックを入れて</b>許可してください。
             </p>
-            <ol className="list-decimal space-y-1 pl-5 text-xs text-zinc-500 dark:text-zinc-400">
-              <li>
-                Google Cloud Console で OAuth クライアントID（ウェブアプリ）を作成
-              </li>
-              <li>
-                「承認済みの JavaScript 生成元」に{" "}
-                <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">
-                  http://localhost:3000
-                </code>{" "}
-                を追加
-              </li>
-              <li>クライアントIDを下に貼り付けて「接続」</li>
-            </ol>
-            <input
-              type="text"
-              value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
-              placeholder="OAuth クライアントID（xxxx.apps.googleusercontent.com）"
-              aria-label="OAuthクライアントID"
-              className="rounded-lg border border-zinc-300 bg-transparent px-3 py-2 text-sm outline-none focus:border-blue-500 dark:border-zinc-700"
-            />
-            {status === "expired" && (
-              <p className="text-sm text-amber-600 dark:text-amber-400">
-                接続の有効期限が切れています。「接続」で再接続してください。
-              </p>
-            )}
-            {error && (
-              <p role="alert" className="text-sm font-medium text-red-600">
-                {error}
-              </p>
-            )}
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              一度許可すれば、以後は自動で連携が維持されます。
+              アプリで作成したタスクは Google カレンダーにも自動で作成されます。
+            </p>
             <button
               type="button"
-              disabled={!clientId.trim() || status === "connecting"}
-              onClick={() => onConnect(clientId.trim())}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50"
+              onClick={onReauth}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700"
             >
-              {status === "connecting" ? "接続中…" : "Googleに接続"}
+              Googleでログインして連携を有効にする
             </button>
           </div>
         )}
@@ -115,7 +91,7 @@ export default function GoogleModal({
         {status === "connected" && (
           <div className="flex flex-col gap-3">
             <p className="text-sm text-emerald-600 dark:text-emerald-400">
-              接続済み。読み込むカレンダーを選んでください。
+              連携中（自動で維持されます）。読み込むカレンダーを選んでください。
             </p>
             <ul className="flex flex-col gap-1">
               {calendars.map((c) => (
@@ -138,6 +114,9 @@ export default function GoogleModal({
                 </li>
               ))}
             </ul>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              アプリで作成したタスクはメインカレンダーに自動で書き込まれます。
+            </p>
             <div className="flex items-center justify-between gap-2">
               <button
                 type="button"

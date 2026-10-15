@@ -61,6 +61,7 @@ export default function Home() {
       remote={auth.enabled}
       userEmail={auth.session?.user.email ?? null}
       onSignOut={auth.enabled ? () => void auth.signOut() : null}
+      onReauth={() => void auth.signInWithGoogle()}
     />
   );
 }
@@ -69,10 +70,12 @@ function HomeInner({
   remote,
   userEmail,
   onSignOut,
+  onReauth,
 }: {
   remote: boolean;
   userEmail: string | null;
   onSignOut: (() => void) | null;
+  onReauth: () => void;
 }) {
   const {
     tasks,
@@ -220,7 +223,7 @@ function HomeInner({
         googleIndicator={
           google.status === "connected"
             ? "green"
-            : google.status === "expired" || google.status === "error"
+            : google.status === "needs_reauth" || google.status === "error"
               ? "amber"
               : "none"
         }
@@ -298,12 +301,10 @@ function HomeInner({
       {googleOpen && (
         <GoogleModal
           status={google.status}
-          error={google.error}
-          savedClientId={google.settings?.clientId ?? ""}
           calendars={google.calendars}
           selectedIds={google.settings?.selectedCalendarIds ?? []}
-          onConnect={(id) => void google.connect(id)}
-          onDisconnect={google.disconnect}
+          onReauth={onReauth}
+          onDisconnect={() => void google.disconnect()}
           onChangeSelected={google.setSelectedCalendars}
           onReload={() => void google.loadDay(dateKey, true)}
           onClose={() => setGoogleOpen(false)}

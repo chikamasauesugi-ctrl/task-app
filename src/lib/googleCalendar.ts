@@ -1,18 +1,14 @@
-// Google カレンダー読み込み（一方向・閲覧のみ）
-// ブラウザ上で Google Identity Services のアクセストークンを取得し、
-// Calendar API を直接呼び出す。アプリから Google への書き戻しはしない。
+// Google カレンダー連携。
+// アクセストークンはログイン時に保存したリフレッシュトークンから
+// サーバー（/api/google/token）が発行する。読み込みと、タスクの自動書き込みを行う。
 
 import { addDays, timeOf, toEpochMs } from "./time";
 import type { Task } from "./types";
 
 const SETTINGS_KEY = "task-app.google.v1";
-// 読み取り（一覧・予定）＋アプリのタスクを予定として書き込むための権限
-const SCOPE =
-  "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events";
 const API = "https://www.googleapis.com/calendar/v3";
 
 export interface GoogleSettings {
-  clientId: string;
   /** 読み込むカレンダーID（複数選択可） */
   selectedCalendarIds: string[];
 }
@@ -43,11 +39,7 @@ export function loadGoogleSettings(): GoogleSettings | null {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (!raw) return null;
     const s = JSON.parse(raw) as Partial<GoogleSettings>;
-    if (!s.clientId) return null;
-    return {
-      clientId: s.clientId,
-      selectedCalendarIds: s.selectedCalendarIds ?? [],
-    };
+    return { selectedCalendarIds: s.selectedCalendarIds ?? [] };
   } catch {
     return null;
   }
@@ -62,79 +54,28 @@ export function saveGoogleSettings(settings: GoogleSettings | null): void {
   }
 }
 
-// ---- Google Identity Services ----
-
-interface TokenResponse {
-  access_token?: string;
-  expires_in?: number;
-  error?: string;
-}
-
-interface TokenClient {
-  requestAccessToken: (opts: { prompt: string }) => void;
-}
-
-interface GoogleGlobal {
-  accounts: {
-    oauth2: {
-      initTokenClient: (opts: {
-        client_id: string;
-        scope: string;
-        callback: (res: TokenResponse) => void;
-        error_callback?: (err: { type?: string; message?: string }) => void;
-      }) => TokenClient;
-    };
-  };
-}
-
-declare global {
-  interface Window {
-    google?: GoogleGlobal;
-  }
-}
-
-let gisLoading: Promise<void> | null = null;
-
-/** GIS スクリプトを一度だけ読み込む */
-export function loadGis(): Promise<void> {
-  if (window.google?.accounts?.oauth2) return Promise.resolve();
-  if (gisLoading) return gisLoading;
-  gisLoading = new Promise((resolve, reject) => {
-    const s = document.createElement("script");
-    s.src = "https://accounts.google.com/gsi/client";
-    s.async = true;
-    s.onload = () => resolve();
-    s.onerror = () => {
-      gisLoading = null;
-      reject(new Error("Google のスクリプトを読み込めませんでした"));
-    };
-    document.head.appendChild(s);
-  });
-  return gisLoading;
-}
-
 /**
- * アクセストークンを取得する。
- * silent=true なら同意画面を出さず、既に許可済みの場合だけ成功する。
+ * サーバー経由でアクセストークンを取得する。
+ * 戻り値 null は「カレンダー連携が未設定（再ログインが必要）」を意味する。
+ * それ以外の失敗は例外を投げる。
  */
-export async function requestAccessToken(
-  clientId: string,
-  silent: boolean
-): Promise<string> {
-  await loadGis();
-  return new Promise((resolve, reject) => {
-    const client = window.google!.accounts.oauth2.initTokenClient({
-      client_id: clientId,
-      scope: SCOPE,
-      callback: (res) => {
-        if (res.access_token) resolve(res.access_token);
-        else reject(new Error(res.error ?? "トークンを取得できませんでした"));
-      },
-      error_callback: (err) =>
-        reject(new Error(err.message ?? err.type ?? "認証に失敗しました")),
-    });
-    client.requestAccessToken({ prompt: silent ? "none" : "consent" });
+export async function fetchAccessToken(
+  supabaseJwt: string
+): Promise<{ accessToken: string; expiresAt: number } | null> {
+  const res = await fetch("/api/google/token", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${supabaseJwt}` },
   });
+  if (res.status === 404 || res.status === 410) return null;
+  if (!res.ok) throw new Error(`トークン取得エラー（${res.status}）`);
+  const data = (await res.json()) as {
+    access_token: string;
+    expires_in: number;
+  };
+  return {
+    accessToken: data.access_token,
+    expiresAt: Date.now() + data.expires_in * 1000,
+  };
 }
 
 // ---- Calendar API ----
