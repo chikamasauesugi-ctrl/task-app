@@ -35,6 +35,32 @@ export const LOCATION_LABELS: Record<LocationType, string> = {
   online: "オンライン",
 };
 
+export type TravelMode = "driving" | "walking" | "bicycling" | "transit";
+
+export const TRAVEL_MODE_ORDER: TravelMode[] = [
+  "driving",
+  "transit",
+  "walking",
+  "bicycling",
+];
+
+export const TRAVEL_MODE_LABELS: Record<TravelMode, string> = {
+  driving: "車",
+  transit: "電車・バス",
+  walking: "徒歩",
+  bicycling: "自転車",
+};
+
+export const TRAVEL_MODE_ICONS: Record<TravelMode, string> = {
+  driving: "🚗",
+  transit: "🚃",
+  walking: "🚶",
+  bicycling: "🚲",
+};
+
+/** 基本の余裕時間（分）。初期値は未確定のため暫定10分 */
+export const DEFAULT_BUFFER_MIN = 10;
+
 export interface Task {
   id: string;
   title: string;
@@ -48,8 +74,10 @@ export interface Task {
   locationType: LocationType;
   /** 実施形式が「場所」のときの住所 */
   address: string;
-  /** この予定へ向かう移動時間（分）。0なら移動なし。経路APIによる自動計算は今後対応 */
+  /** この予定へ向かう移動時間（分）。0なら移動なし。手動入力か経路APIの自動計算 */
   travelMinutes: number;
+  /** この予定への移動手段（予定ごとに選択） */
+  travelMode: TravelMode;
   createdAt: number;
   /** 繰り返し。"none" 以外は繰り返しの親タスク（各回は仮想的に展開する） */
   repeat: RepeatFreq;
@@ -83,6 +111,7 @@ export type TaskInput = Pick<
   | "locationType"
   | "address"
   | "travelMinutes"
+  | "travelMode"
 >;
 
 /** ゴミ箱の保持日数 */

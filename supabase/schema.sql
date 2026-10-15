@@ -12,6 +12,7 @@ create table if not exists public.tasks (
   location_type text not null default 'none',
   address text not null default '',
   travel_minutes integer not null default 0,
+  travel_mode text not null default 'driving',
   repeat text not null default 'none',
   repeat_until text,               -- "YYYY-MM-DD"（この日を含まない）
   excluded_dates jsonb,            -- ["YYYY-MM-DD", ...]
@@ -23,6 +24,7 @@ create table if not exists public.tasks (
 
 -- 既存テーブルに後から追加する場合用（再実行しても安全）
 alter table public.tasks add column if not exists google_event_id text;
+alter table public.tasks add column if not exists travel_mode text not null default 'driving';
 
 -- Google カレンダー常時連携用のリフレッシュトークン保管（本人のみ読み書き可）
 create table if not exists public.google_tokens (

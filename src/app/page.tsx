@@ -30,6 +30,7 @@ function toGoogleTask(e: GoogleEvent): Task {
     locationType: e.location ? "place" : "none",
     address: e.location,
     travelMinutes: 0,
+    travelMode: "driving",
     repeat: "none",
     createdAt: 0,
     source: "google",
@@ -205,6 +206,26 @@ function HomeInner({
       : `この予定への移動時間が「${name}」の時間帯と重なっています`;
   };
 
+  // 移動の起点：同じ日の、開始時刻より前に終わる場所つき予定のうち最も遅いもの
+  const suggestOrigin = (dk: string, startTime: string): string | null => {
+    const limit = `${dk}T${startTime}`;
+    const candidates = [
+      ...tasksForDay(dk),
+      ...google
+        .eventsForDay(dk)
+        .filter((e) => e.startAt && e.endAt)
+        .map(toGoogleTask),
+    ]
+      .filter(
+        (t) =>
+          t.address &&
+          t.endAt <= limit &&
+          t.id !== editing?.id
+      )
+      .sort((a, b) => (a.endAt < b.endAt ? 1 : -1));
+    return candidates[0]?.address ?? null;
+  };
+
   const handleStatusChange = (task: Task, status: TaskStatus) => {
     if (isRecurringOccurrence(task)) {
       // 繰り返しの各回のステータスはその回だけに適用する
@@ -277,6 +298,7 @@ function HomeInner({
           onSubmit={handleSubmit}
           onDelete={handleDelete}
           validate={validateTravel}
+          suggestOrigin={suggestOrigin}
         />
       )}
 

@@ -6,14 +6,20 @@ import {
   LOCATION_ORDER,
   REPEAT_LABELS,
   REPEAT_ORDER,
+  TRAVEL_MODE_LABELS,
+  TRAVEL_MODE_ORDER,
   type LocationType,
   type RepeatFreq,
   type Task,
   type TaskInput,
   type TaskStatus,
+  type TravelMode,
 } from "../lib/types";
 import { dateKeyOf, timeOf } from "../lib/time";
+import { fetchTravelMinutes } from "../lib/routes";
 import StatusSelect from "./StatusSelect";
+
+const ORIGIN_KEY = "task-app.defaultOrigin";
 
 interface Props {
   /** null なら新規作成、Task なら編集。呼び出し側は key で再マウントさせること */
@@ -24,6 +30,8 @@ interface Props {
   onDelete: (task: Task) => void;
   /** 登録前の追加チェック（移動中の重複など）。エラーメッセージを返すと登録を中止する */
   validate?: (values: TaskInput) => string | null;
+  /** その日の直前の予定の場所（移動の起点）を返す。無ければ null */
+  suggestOrigin?: (dateKey: string, startTime: string) => string | null;
 }
 
 export default function TaskFormModal({
@@ -33,6 +41,7 @@ export default function TaskFormModal({
   onSubmit,
   onDelete,
   validate,
+  suggestOrigin,
 }: Props) {
   const [title, setTitle] = useState(editing?.title ?? "");
   const [date, setDate] = useState(
@@ -54,7 +63,56 @@ export default function TaskFormModal({
   const [travelMinutes, setTravelMinutes] = useState(
     editing?.travelMinutes ?? 0
   );
+  const [travelMode, setTravelMode] = useState<TravelMode>(
+    editing?.travelMode ?? "driving"
+  );
+  const [origin, setOrigin] = useState(() => {
+    try {
+      return localStorage.getItem(ORIGIN_KEY) ?? "";
+    } catch {
+      return "";
+    }
+  });
+  const [calcLoading, setCalcLoading] = useState(false);
+  const [calcError, setCalcError] = useState("");
   const [error, setError] = useState("");
+
+  // 移動の起点：同じ日の直前の予定の場所。無ければ手入力の出発地を使う
+  const suggestedOrigin = suggestOrigin ? suggestOrigin(date, start) : null;
+
+  const handleAutoCalc = async () => {
+    setCalcError("");
+    if (!address.trim()) {
+      setCalcError("住所を入力してください");
+      return;
+    }
+    const from = suggestedOrigin ?? origin.trim();
+    if (!from) {
+      setCalcError("出発地を入力してください");
+      return;
+    }
+    setCalcLoading(true);
+    try {
+      const minutes = await fetchTravelMinutes({
+        origin: from,
+        destination: address.trim(),
+        mode: travelMode,
+        arrivalAt: `${date}T${start}`,
+      });
+      setTravelMinutes(minutes);
+      if (!suggestedOrigin) {
+        try {
+          localStorage.setItem(ORIGIN_KEY, from);
+        } catch {
+          // 保存失敗は無視
+        }
+      }
+    } catch (e) {
+      setCalcError(e instanceof Error ? e.message : "経路計算に失敗しました");
+    } finally {
+      setCalcLoading(false);
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,6 +134,7 @@ export default function TaskFormModal({
       locationType,
       address: locationType === "place" ? address.trim() : "",
       travelMinutes: locationType === "place" ? travelMinutes : 0,
+      travelMode,
     };
     const validationError = validate?.(values);
     if (validationError) {
@@ -222,7 +281,52 @@ export default function TaskFormModal({
                   aria-label="住所"
                   className="mt-1 rounded-lg border border-zinc-300 bg-transparent px-3 py-2 outline-none focus:border-blue-500 dark:border-zinc-700"
                 />
-                <label className="mt-1 flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-300">
+                <div className="mt-1 flex flex-col gap-1">
+                  <span className="text-sm text-zinc-600 dark:text-zinc-300">
+                    移動手段
+                  </span>
+                  <div
+                    role="radiogroup"
+                    aria-label="移動手段"
+                    className="flex flex-wrap gap-2"
+                  >
+                    {TRAVEL_MODE_ORDER.map((m) => {
+                      const selected = m === travelMode;
+                      return (
+                        <button
+                          key={m}
+                          type="button"
+                          role="radio"
+                          aria-checked={selected}
+                          onClick={() => setTravelMode(m)}
+                          className={`rounded-full px-3 py-1.5 text-sm font-medium transition ${
+                            selected
+                              ? "bg-cyan-700 text-white dark:bg-cyan-600"
+                              : "border border-zinc-300 text-zinc-500 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                          }`}
+                        >
+                          {TRAVEL_MODE_LABELS[m]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                {suggestedOrigin ? (
+                  <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                    出発地：{suggestedOrigin}（直前の予定の場所）
+                  </p>
+                ) : (
+                  <input
+                    type="text"
+                    value={origin}
+                    onChange={(e) => setOrigin(e.target.value)}
+                    maxLength={300}
+                    placeholder="出発地（例：自宅の住所。直前に場所つきの予定がないため）"
+                    aria-label="出発地"
+                    className="mt-1 rounded-lg border border-zinc-300 bg-transparent px-3 py-2 text-sm outline-none focus:border-blue-500 dark:border-zinc-700"
+                  />
+                )}
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-zinc-600 dark:text-zinc-300">
                   <span>移動時間</span>
                   <input
                     type="number"
@@ -238,8 +342,21 @@ export default function TaskFormModal({
                     aria-label="移動時間（分）"
                     className="w-20 rounded-lg border border-zinc-300 bg-transparent px-2 py-1.5 text-right outline-none focus:border-blue-500 dark:border-zinc-700"
                   />
-                  <span>分（手動入力。経路からの自動計算は今後対応）</span>
-                </label>
+                  <span>分</span>
+                  <button
+                    type="button"
+                    onClick={() => void handleAutoCalc()}
+                    disabled={calcLoading}
+                    className="rounded-lg border border-cyan-700 px-3 py-1.5 text-sm font-medium text-cyan-700 hover:bg-cyan-50 disabled:opacity-50 dark:border-cyan-600 dark:text-cyan-400 dark:hover:bg-cyan-950/40"
+                  >
+                    {calcLoading ? "計算中…" : "経路から自動計算"}
+                  </button>
+                </div>
+                {calcError && (
+                  <p role="alert" className="mt-1 text-xs font-medium text-red-600">
+                    {calcError}
+                  </p>
+                )}
               </>
             )}
           </div>

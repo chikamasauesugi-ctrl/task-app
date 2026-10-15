@@ -9,6 +9,7 @@ import {
   type Task,
   type TaskInput,
   type TaskStatus,
+  type TravelMode,
 } from "./types";
 import { dateKeyOf, timeOf } from "./time";
 import { makeOccurrence, occursOn } from "./recurrence";
@@ -37,6 +38,7 @@ function normalize(t: Partial<Task>): Task | null {
     locationType: t.locationType ?? "none",
     address: t.address ?? "",
     travelMinutes: t.travelMinutes ?? 0,
+    travelMode: t.travelMode ?? "driving",
     createdAt: t.createdAt ?? Date.now(),
     repeat: t.repeat ?? "none",
     repeatUntil: t.repeatUntil,
@@ -76,6 +78,7 @@ interface TaskRow {
   location_type: LocationType;
   address: string;
   travel_minutes: number;
+  travel_mode: TravelMode;
   repeat: RepeatFreq;
   repeat_until: string | null;
   excluded_dates: string[] | null;
@@ -96,6 +99,7 @@ function fromRow(r: TaskRow): Task {
     locationType: r.location_type,
     address: r.address,
     travelMinutes: r.travel_minutes,
+    travelMode: r.travel_mode ?? "driving",
     repeat: r.repeat,
     repeatUntil: r.repeat_until ?? undefined,
     excludedDates: r.excluded_dates ?? undefined,
@@ -117,6 +121,7 @@ function toRow(t: Task): TaskRow {
     location_type: t.locationType,
     address: t.address,
     travel_minutes: t.travelMinutes,
+    travel_mode: t.travelMode,
     repeat: t.repeat,
     repeat_until: t.repeatUntil ?? null,
     excluded_dates: t.excludedDates ?? null,
@@ -320,6 +325,7 @@ export function useTasks(remote = false) {
             locationType: values.locationType,
             address: values.address,
             travelMinutes: values.travelMinutes,
+            travelMode: values.travelMode,
             startAt: `${d}T${timeOf(values.startAt)}`,
             endAt: `${d}T${timeOf(values.endAt)}`,
           };

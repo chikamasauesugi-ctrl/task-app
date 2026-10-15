@@ -1,10 +1,18 @@
 "use client";
 
-import type { Task, TaskStatus } from "../lib/types";
+import {
+  DEFAULT_BUFFER_MIN,
+  TRAVEL_MODE_ICONS,
+  type Task,
+  type TaskStatus,
+} from "../lib/types";
 import { dateKeyOf, displayRange, layoutDayTasks } from "../lib/time";
 import TaskBlock from "./TaskBlock";
 
 const HOUR_PX = 64;
+
+const fmtMin = (min: number) =>
+  `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
 
 interface Props {
   tasks: Task[];
@@ -67,19 +75,33 @@ export default function Timeline({
           .map(({ task, startMin: s, col, cols }) => {
             const top = toPx(s - task.travelMinutes);
             const height = toPx(s) - top;
+            // 出発推奨時刻 ＝ 開始 − 移動時間 − 余裕時間
+            const departMin = s - task.travelMinutes - DEFAULT_BUFFER_MIN;
+            const icon = TRAVEL_MODE_ICONS[task.travelMode ?? "driving"];
             return (
               <div
                 key={`travel-${task.id}`}
-                aria-label={`移動時間 ${task.travelMinutes}分`}
+                aria-label={`移動時間 ${task.travelMinutes}分、出発推奨 ${
+                  departMin >= 0 ? fmtMin(departMin) : "--"
+                }`}
                 style={{
                   top,
                   height,
                   left: `calc(${(col / cols) * 100}% + 2px)`,
                   width: `calc(${100 / cols}% - 6px)`,
                 }}
-                className="absolute flex items-center justify-center overflow-hidden rounded-lg border border-dashed border-zinc-400 bg-zinc-100/70 text-[11px] text-zinc-500 dark:border-zinc-600 dark:bg-zinc-800/50 dark:text-zinc-400"
+                className="absolute flex flex-col items-center justify-center overflow-hidden rounded-lg border border-dashed border-zinc-400 bg-zinc-100/70 text-[11px] leading-tight text-zinc-500 dark:border-zinc-600 dark:bg-zinc-800/50 dark:text-zinc-400"
               >
-                {height >= 18 && <span>🚶 移動 {task.travelMinutes}分</span>}
+                {height >= 18 && (
+                  <span>
+                    {icon} 移動 {task.travelMinutes}分
+                  </span>
+                )}
+                {height >= 34 && departMin >= 0 && (
+                  <span className="font-semibold text-cyan-700 dark:text-cyan-400">
+                    {fmtMin(departMin)} 出発推奨
+                  </span>
+                )}
               </div>
             );
           })}
