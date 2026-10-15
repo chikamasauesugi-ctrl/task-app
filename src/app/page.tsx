@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import DayHeader from "../components/DayHeader";
 import GoogleEventModal from "../components/GoogleEventModal";
 import GoogleModal from "../components/GoogleModal";
@@ -75,6 +75,7 @@ function HomeInner({
   onSignOut: (() => void) | null;
 }) {
   const {
+    tasks,
     ready,
     addTask,
     updateTask,
@@ -98,13 +99,26 @@ function HomeInner({
   const [pending, setPending] = useState<Pending | null>(null);
 
   // 表示中の日の Google 予定を読み込む（キャッシュ済みなら何もしない）
-  const { status: googleStatus, loadDay } = google;
+  const { status: googleStatus, loadDay, syncTasks } = google;
   const viewDateKey = navDateKey ?? (now ? now.slice(0, 10) : null);
   useEffect(() => {
     if (googleStatus === "connected" && viewDateKey) {
       void loadDay(viewDateKey);
     }
   }, [googleStatus, viewDateKey, loadDay]);
+
+  // タスクの変更を Google カレンダーへ自動反映（接続中のみ）
+  const prevSyncedRef = useRef<Task[] | null>(null);
+  useEffect(() => {
+    if (!ready) return;
+    if (googleStatus !== "connected") {
+      prevSyncedRef.current = tasks;
+      return;
+    }
+    const prev = prevSyncedRef.current ?? [];
+    prevSyncedRef.current = tasks;
+    void syncTasks(tasks, prev, (id, patch) => updateTask(id, patch));
+  }, [tasks, ready, googleStatus, syncTasks, updateTask]);
 
   if (!now || !ready) {
     return (

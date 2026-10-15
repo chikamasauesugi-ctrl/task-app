@@ -43,6 +43,7 @@ function normalize(t: Partial<Task>): Task | null {
     excludedDates: t.excludedDates,
     occurrenceStatus: t.occurrenceStatus,
     deletedAt: t.deletedAt ?? null,
+    googleEventId: t.googleEventId ?? null,
   };
 }
 
@@ -80,6 +81,7 @@ interface TaskRow {
   excluded_dates: string[] | null;
   occurrence_status: Record<string, TaskStatus> | null;
   deleted_at: number | null;
+  google_event_id: string | null;
   created_at: number;
 }
 
@@ -99,6 +101,7 @@ function fromRow(r: TaskRow): Task {
     excludedDates: r.excluded_dates ?? undefined,
     occurrenceStatus: r.occurrence_status ?? undefined,
     deletedAt: r.deleted_at,
+    googleEventId: r.google_event_id,
     createdAt: r.created_at,
   };
 }
@@ -119,6 +122,7 @@ function toRow(t: Task): TaskRow {
     excluded_dates: t.excludedDates ?? null,
     occurrence_status: t.occurrenceStatus ?? null,
     deleted_at: t.deletedAt ?? null,
+    google_event_id: t.googleEventId ?? null,
     created_at: t.createdAt,
   };
 }
@@ -232,11 +236,14 @@ export function useTasks(remote = false) {
     setTasks((prev) => [...prev, task]);
   }, []);
 
-  const updateTask = useCallback((id: string, patch: Partial<TaskInput>) => {
-    setTasks((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, ...patch } : t))
-    );
-  }, []);
+  const updateTask = useCallback(
+    (id: string, patch: Partial<Omit<Task, "id" | "createdAt">>) => {
+      setTasks((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, ...patch } : t))
+      );
+    },
+    []
+  );
 
   /** 繰り返しタスクの特定の回のステータスだけ変更する */
   const setOccurrenceStatus = useCallback(

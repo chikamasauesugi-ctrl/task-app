@@ -2,15 +2,20 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  deleteTaskEvent,
   fetchCalendarList,
   fetchEventsForDay,
+  insertTaskEvent,
   loadGoogleSettings,
+  patchTaskEvent,
   requestAccessToken,
   saveGoogleSettings,
+  taskEventSignature,
   type GoogleCalendarInfo,
   type GoogleEvent,
   type GoogleSettings,
 } from "./googleCalendar";
+import type { Task } from "./types";
 
 export type GoogleStatus =
   | "disconnected" // 未設定
@@ -151,6 +156,60 @@ export function useGoogleCalendar() {
     [eventsByDay]
   );
 
+  const syncingRef = useRef(false);
+
+  /**
+   * アプリのタスクを Google カレンダーへ自動反映する。
+   * 新規 → 予定を作成（patchTask で googleEventId を保存）、
+   * 変更 → 予定を更新、ゴミ箱入り・完全削除 → 予定を削除。
+   */
+  const syncTasks = useCallback(
+    async (
+      next: Task[],
+      prev: Task[],
+      patchTask: (id: string, patch: { googleEventId: string | null }) => void
+    ) => {
+      const token = tokenRef.current;
+      if (!token || syncingRef.current) return;
+      syncingRef.current = true;
+      try {
+        const prevMap = new Map(prev.map((t) => [t.id, t]));
+        for (const t of next) {
+          if (!t.deletedAt && !t.googleEventId) {
+            const eventId = await insertTaskEvent(token, t);
+            patchTask(t.id, { googleEventId: eventId });
+          } else if (t.deletedAt && t.googleEventId) {
+            await deleteTaskEvent(token, t.googleEventId);
+            patchTask(t.id, { googleEventId: null });
+          } else if (!t.deletedAt && t.googleEventId) {
+            const p = prevMap.get(t.id);
+            if (p && taskEventSignature(p) !== taskEventSignature(t)) {
+              await patchTaskEvent(token, t.googleEventId, t);
+            }
+          }
+        }
+        // 完全削除されたタスク（30日経過の自動削除など）の予定も消す
+        const nextIds = new Set(next.map((t) => t.id));
+        for (const p of prev) {
+          if (p.googleEventId && !nextIds.has(p.id)) {
+            await deleteTaskEvent(token, p.googleEventId);
+          }
+        }
+      } catch (e) {
+        if (e instanceof Error && e.message === "unauthorized") {
+          // 書き込み権限がない古いトークンなど → 再接続を促す
+          tokenRef.current = null;
+          setStatus("expired");
+        } else {
+          console.error("Googleカレンダー書き込みエラー:", e);
+        }
+      } finally {
+        syncingRef.current = false;
+      }
+    },
+    []
+  );
+
   return {
     settings,
     status,
@@ -161,5 +220,6 @@ export function useGoogleCalendar() {
     setSelectedCalendars,
     loadDay,
     eventsForDay,
+    syncTasks,
   };
 }

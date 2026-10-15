@@ -61,6 +61,8 @@ export interface Task {
   occurrenceStatus?: Record<string, TaskStatus>;
   /** ゴミ箱に入れた日時（epoch ms）。null/undefined なら通常表示 */
   deletedAt?: number | null;
+  /** このタスクから作成した Google カレンダー予定のID（自動書き込み用） */
+  googleEventId?: string | null;
   /** 実行時のみ：仮想展開された回の日付 "YYYY-MM-DD"（保存しない） */
   occurrenceDate?: string;
   /** 実行時のみ：Googleカレンダー由来の予定（読み取り専用、保存しない） */

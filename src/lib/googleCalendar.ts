@@ -2,8 +2,13 @@
 // ブラウザ上で Google Identity Services のアクセストークンを取得し、
 // Calendar API を直接呼び出す。アプリから Google への書き戻しはしない。
 
+import { addDays, timeOf, toEpochMs } from "./time";
+import type { Task } from "./types";
+
 const SETTINGS_KEY = "task-app.google.v1";
-const SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
+// 読み取り（一覧・予定）＋アプリのタスクを予定として書き込むための権限
+const SCOPE =
+  "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events";
 const API = "https://www.googleapis.com/calendar/v3";
 
 export interface GoogleSettings {
@@ -177,6 +182,7 @@ interface EventsResponse {
     htmlLink?: string;
     start?: { dateTime?: string; date?: string };
     end?: { dateTime?: string; date?: string };
+    extendedProperties?: { private?: Record<string, string> };
   }[];
 }
 
@@ -222,6 +228,8 @@ export async function fetchEventsForDay(
   );
   return (data.items ?? [])
     .filter((e) => e.status !== "cancelled")
+    // このアプリが書き込んだ予定は除外（タスクと二重表示になるため）
+    .filter((e) => !e.extendedProperties?.private?.taskApp)
     .map((e) => ({
       id: e.id,
       calendarId,
@@ -233,4 +241,129 @@ export async function fetchEventsForDay(
       description: e.description ?? "",
       htmlLink: e.htmlLink ?? "",
     }));
+}
+
+// ---- アプリのタスク → Google カレンダーへの自動書き込み ----
+
+async function apiSend<T>(
+  token: string,
+  method: "POST" | "PATCH" | "DELETE",
+  path: string,
+  body?: unknown
+): Promise<T | null> {
+  const res = await fetch(`${API}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  // 既に削除済みの予定への削除・更新は成功扱い
+  if (method !== "POST" && (res.status === 404 || res.status === 410))
+    return null;
+  if (res.status === 401 || res.status === 403)
+    throw new Error("unauthorized");
+  if (!res.ok) throw new Error(`Google API エラー（${res.status}）`);
+  if (res.status === 204) return null;
+  return (res.json() as Promise<T>);
+}
+
+/** RRULE/EXDATE（繰り返し設定）を組み立てる */
+function recurrenceOf(task: Task): string[] | undefined {
+  if (task.repeat === "none") return undefined;
+  const freq = { daily: "DAILY", weekly: "WEEKLY", monthly: "MONTHLY" }[
+    task.repeat
+  ];
+  let rule = `RRULE:FREQ=${freq}`;
+  if (task.repeatUntil) {
+    // repeatUntil は「この日を含まない」。前日の23:59（ローカル）をUTCに直してUNTILへ
+    const lastLocal = `${addDays(task.repeatUntil, -1)}T23:59`;
+    const until = new Date(toEpochMs(lastLocal))
+      .toISOString()
+      .replace(/[-:]/g, "")
+      .slice(0, 15);
+    rule += `;UNTIL=${until}Z`;
+  }
+  const lines = [rule];
+  if (task.excludedDates && task.excludedDates.length > 0) {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const time = timeOf(task.startAt).replace(":", "") + "00";
+    lines.push(
+      `EXDATE;TZID=${tz}:` +
+        task.excludedDates
+          .map((d) => d.replace(/-/g, "") + "T" + time)
+          .join(",")
+    );
+  }
+  return lines;
+}
+
+function eventBodyOf(task: Task): Record<string, unknown> {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return {
+    summary: task.title.trim() || "無題のタスク",
+    description: task.memo,
+    location: task.address,
+    start: { dateTime: `${task.startAt}:00`, timeZone: tz },
+    end: { dateTime: `${task.endAt}:00`, timeZone: tz },
+    recurrence: recurrenceOf(task),
+    // ループ防止の目印（読み込み時にこの予定を除外する）
+    extendedProperties: { private: { taskApp: "1", taskId: task.id } },
+  };
+}
+
+/** 予定の内容に関わる部分のシグネチャ（変更検知用） */
+export function taskEventSignature(task: Task): string {
+  return JSON.stringify([
+    task.title,
+    task.startAt,
+    task.endAt,
+    task.memo,
+    task.address,
+    task.repeat,
+    task.repeatUntil ?? null,
+    task.excludedDates ?? [],
+  ]);
+}
+
+/** タスクをメインカレンダーに予定として作成し、予定IDを返す */
+export async function insertTaskEvent(
+  token: string,
+  task: Task
+): Promise<string> {
+  const created = await apiSend<{ id: string }>(
+    token,
+    "POST",
+    "/calendars/primary/events",
+    eventBodyOf(task)
+  );
+  if (!created) throw new Error("予定の作成に失敗しました");
+  return created.id;
+}
+
+/** タスクに対応する予定を更新する */
+export async function patchTaskEvent(
+  token: string,
+  eventId: string,
+  task: Task
+): Promise<void> {
+  await apiSend(
+    token,
+    "PATCH",
+    `/calendars/primary/events/${encodeURIComponent(eventId)}`,
+    eventBodyOf(task)
+  );
+}
+
+/** タスクに対応する予定を削除する */
+export async function deleteTaskEvent(
+  token: string,
+  eventId: string
+): Promise<void> {
+  await apiSend(
+    token,
+    "DELETE",
+    `/calendars/primary/events/${encodeURIComponent(eventId)}`
+  );
 }

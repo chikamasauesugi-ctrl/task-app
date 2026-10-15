@@ -17,8 +17,12 @@ create table if not exists public.tasks (
   excluded_dates jsonb,            -- ["YYYY-MM-DD", ...]
   occurrence_status jsonb,         -- {"YYYY-MM-DD": "done", ...}
   deleted_at bigint,               -- ゴミ箱入りの epoch ms。null なら通常表示
+  google_event_id text,            -- 自動書き込みした Google 予定のID
   created_at bigint not null
 );
+
+-- 既存テーブルに後から追加する場合用（再実行しても安全）
+alter table public.tasks add column if not exists google_event_id text;
 
 create index if not exists tasks_user_id_idx on public.tasks (user_id);
 
