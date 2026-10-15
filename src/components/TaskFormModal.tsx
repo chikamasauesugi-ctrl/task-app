@@ -332,7 +332,7 @@ export default function TaskFormModal({
                     type="number"
                     min={0}
                     max={600}
-                    step={5}
+                    step={1}
                     value={travelMinutes}
                     onChange={(e) =>
                       setTravelMinutes(

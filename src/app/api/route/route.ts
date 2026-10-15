@@ -23,7 +23,8 @@ interface RouteRequest {
 
 export async function POST(req: Request) {
   const apiKey = process.env.GOOGLE_MAPS_API_KEY;
-  if (!apiKey) {
+  // 未設定・プレースホルダーのまま（ASCII以外を含む）は未構成として扱う
+  if (!apiKey || !/^[\x21-\x7e]+$/.test(apiKey)) {
     return NextResponse.json(
       { error: "server_not_configured" },
       { status: 500 }
